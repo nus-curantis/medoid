@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 from __future__ import absolute_import, division
 import numbers
 import numpy as np
@@ -11,43 +8,11 @@ try:
 except NameError:
     pass
 
-
-def fast_relaxed_dtw(x, y, radius=1, dist=None, r=0):
-    ''' return the approximate distance between 2 time series with O(N)
-        time and memory complexity
-        Parameters
-        ----------
-        x : array_like
-        input array 1
-        y : array_like
-        input array 2
-        radius : int
-        size of neighborhood when expanding the path. A higher value will
-        increase the accuracy of the calculation but also increase time
-        and memory consumption. A radius equal to the size of x and y will
-        yield an exact dynamic time warping calculation.
-        dist : function or int
-        The method for calculating the distance between x[i] and y[j]. If
-        dist is an int of value p > 0, then the p-norm will be used. If
-        dist is a function then dist(x[i], y[j]) will be used. If dist is
-        None then abs(x[i] - y[j]) will be used.
-        Returns
-        -------
-        distance : float
-        the approximate distance between the 2 time series
-        path : list
-        list of indexes for the inputs x and y
-        Examples
-        --------
-        >>> import numpy as np
-        >>> import fastdtw
-        >>> x = np.array([1, 2, 3, 4, 5], dtype='float')
-        >>> y = np.array([2, 3, 4], dtype='float')
-        >>> fastdtw.fastdtw(x, y)
-        (2.0, [(0, 0), (1, 0), (2, 1), (3, 2), (4, 2)])
-        '''
+def fast_relax_dtw(x, y, r=3, dist=None):
     x, y, dist = __prep_inputs(x, y, dist)
-    return __fastdtw(x, y, radius, dist, r)
+    radius = r - 2 if r > 3 else 1
+    distance, path, D = __fastdtw(x, y, radius, dist)
+    return __relax_dtw(D, len(x), len(y), r)
 
 
 def __difference(a, b):
@@ -58,124 +23,94 @@ def __norm(p):
     return lambda a, b: np.linalg.norm(a - b, p)
 
 
-def __fastdtw(x, y, radius, dist, r):
-    min_time_size = radius + 2 + r
-    
+def __fastdtw(x, y, radius, dist):
+    min_time_size = radius + 2
+
     if len(x) < min_time_size or len(y) < min_time_size:
-        return relaxed_dtw(x, y, dist=dist, r=r)
-    
+        return dtw(x, y, dist=dist)
+
     x_shrinked = __reduce_by_half(x)
     y_shrinked = __reduce_by_half(y)
-    distance, path = \
-        __fastdtw(x_shrinked, y_shrinked, radius=radius, dist=dist, r=r)
+    distance, path, D = \
+        __fastdtw(x_shrinked, y_shrinked, radius=radius, dist=dist)
     window = __expand_window(path, len(x), len(y), radius)
-    return __relaxed_dtw(x, y, window, dist=dist, r=r)
+    return __dtw(x, y, window, dist=dist) 
+    # add relax of end point at the final step
+    # if r == 0:
+    #     
+    # else:
+    #     return __relax_dtw(x, y, window, dist=dist, r=r)
+
 
 
 def __prep_inputs(x, y, dist):
     x = np.asanyarray(x, dtype='float')
     y = np.asanyarray(y, dtype='float')
-    
+
     if x.ndim == y.ndim > 1 and x.shape[1] != y.shape[1]:
         raise ValueError('second dimension of x and y must be the same')
     if isinstance(dist, numbers.Number) and dist <= 0:
         raise ValueError('dist cannot be a negative integer')
-    
+
     if dist is None:
         if x.ndim == 1:
             dist = __difference
-        else:
+        else: 
             dist = __norm(p=1)
     elif isinstance(dist, numbers.Number):
         dist = __norm(p=dist)
-    
+
     return x, y, dist
 
 
-def relaxed_dtw(x, y, dist=lambda x,y : ((x-y)**2), r=0):
-    ''' return the distance between 2 time series without approximation
-        Parameters
-        ----------
-        x : array_like
-        input array 1
-        y : array_like
-        input array 2
-        dist : function or int
-        The method for calculating the distance between x[i] and y[j]. If
-        dist is an int of value p > 0, then the p-norm will be used. If
-        dist is a function then dist(x[i], y[j]) will be used. If dist is
-        None then abs(x[i] - y[j]) will be used.
-        Returns
-        -------
-        distance : float
-        the approximate distance between the 2 time series
-        path : list
-        list of indexes for the inputs x and y
-        Examples
-        --------
-        >>> import numpy as np
-        >>> import fastdtw
-        >>> x = np.array([1, 2, 3, 4, 5], dtype='float')
-        >>> y = np.array([2, 3, 4], dtype='float')
-        >>> fastdtw.dtw(x, y)
-        (2.0, [(0, 0), (1, 0), (2, 1), (3, 2), (4, 2)])
-        '''
+def dtw(x, y, dist=None):
     x, y, dist = __prep_inputs(x, y, dist)
-    return __relaxed_dtw(x, y, None, dist, r)
+    return __dtw(x, y, None, dist)
 
 
-def __relaxed_dtw(x, y, window, dist, r):
+def __dtw(x, y, window, dist):
     len_x, len_y = len(x), len(y)
     if window is None:
         window = [(i, j) for i in range(len_x) for j in range(len_y)]
     window = ((i + 1, j + 1) for i, j in window)
-#    DTW = np.full((len(x), len(y)),np.inf)
-    DTW = defaultdict(lambda: (float('inf'),))
-#    DTW[0, 0] = (0, 0, 0)
-    if (r==0):  ## classic DTW
-        for m in range(len_x):
-            DTW[m, 0] = (0, m, 0)
-        for n in range(len_y):
-            DTW[0, n] = (0, 0, n)
-#        DTW[0:,0][0]= 0
-#        DTW[0,0:][0] = 0
-    else:
-        for m in range(r+1):
-            DTW[m, 0] = (0, m, 0)
-            DTW[0, m] = (0, 0, m)
-#        DTW[0:r,0][0] = 0
-#        DTW[0,0:r][0] = 0
+    D = defaultdict(lambda: (float('inf'),))
+    D[0, 0] = (0, 0, 0)
     for i, j in window:
         dt = dist(x[i-1], y[j-1])
-        DTW[i, j] = min((DTW[i-1, j][0]+dt, i-1, j), (DTW[i, j-1][0]+dt, i, j-1),
-                      (DTW[i-1, j-1][0]+dt, i-1, j-1), key=lambda a: a[0])
-    i, j = len_x, len_y
-    if (r!=0):
-        min_x = DTW[len(x)-r,len(y)][0]
-        min_y = DTW[len(x),len(y)-r][0]
-        for m in range(r+1):
-            min_x = min(DTW[len(x)-r+m,len(y)][0], min_x)
-            min_y = min(DTW[len(x),len(y)-r+m][0], min_y)
-        final_dist =min(min_x,min_y)
-        if min_x < min_y:
-            pre = DTW[len(x),len(y)-r]
-            for m in range(r+1):
-                if DTW[len(x),len(y)-r+m] < pre:
-                    j = len(y)-r+m
-        else:
-            pre = DTW[len(x)-r,len(y)]
-            for m in range(r+1):
-                if DTW[len(x)-r+m,len(y)] < pre:
-                    i = len(x)-r+m
-    else:
-        final_dist = (DTW[len(x),len(y)][0])
+        D[i, j] = min((D[i-1, j][0]+dt, i-1, j), (D[i, j-1][0]+dt, i, j-1),
+                      (D[i-1, j-1][0]+dt, i-1, j-1), key=lambda a: a[0])
     path = []
-    while not (i == 0 or j == 0):
-#        print(DTW[i, j][0])
+    i, j = len_x, len_y
+    while not (i == j == 0):
         path.append((i-1, j-1))
-        i, j = DTW[i, j][1], DTW[i, j][2]
+        i, j = D[i, j][1], D[i, j][2]
     path.reverse()
-    return (final_dist, path)
+    print("D is")
+    print(D)
+    return (D[len_x, len_y][0], path, D)
+
+def __relax_dtw(D, len_x, len_y, r):
+    l = []
+    # print(D[len_x, len_y])
+    # print(D[len_x, len_y-1])
+    # print(D[len_x, len_y-2])
+    # print(D[len_x, len_y-3])
+    for i in range(len_x-r, len_x+1):
+        # print(D[i, len_y])
+        l.append(D[i, len_y])
+    for j in range(len_y-r, len_y+1):
+        # print(D[len_x, j])
+        l.append(D[len_x, j])
+    # min_i = min(D[len_y-1,len_x-r-1:len_x-1], key=lambda x: x[0])
+    # min_j = min(D[len_y-r-1:len_y-1,len_x-1], key=lambda x: x[0])
+    minimum = min(l, key=lambda x: x[0])
+    min_value, i, j = minimum[0], minimum[1], minimum[2]
+    path = []
+    while not (i == j == 0):
+        path.append((i-1, j-1))
+        i, j = D[i, j][1], D[i, j][2]
+    path.reverse()
+    return (min_value, path)
 
 
 def __reduce_by_half(x):
@@ -195,9 +130,9 @@ def __expand_window(path, len_x, len_y, radius):
         for a, b in ((i * 2, j * 2), (i * 2, j * 2 + 1),
                      (i * 2 + 1, j * 2), (i * 2 + 1, j * 2 + 1)):
             window_.add((a, b))
-                
-            window = []
-            start_j = 0
+
+    window = []
+    start_j = 0
     for i in range(0, len_x):
         new_start_j = None
         for j in range(start_j, len_y):
@@ -208,5 +143,6 @@ def __expand_window(path, len_x, len_y, radius):
             elif new_start_j is not None:
                 break
         start_j = new_start_j
-
+    print('window is =====')
+    print(window)
     return window

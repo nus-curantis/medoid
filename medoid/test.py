@@ -78,4 +78,5 @@ def calculate_medoids(user, activities, duration):
     return all_segments, medoids, represents
 
 user = 2
-calculate_medoids(user, all_activities[user][6:], 5)
+
+calculate_medoids(user, all_activities[user][1:], 5)

@@ -1,90 +1,82 @@
-activities = ['Walking', 'Running', 'Commute in bus', 'Eating using fork and spoon', 
-             'Using mobile phone(texting)', 'Working on laptop', 'Sitting', 'Washing hands',
-             'Eating with hand', 'Conversing while sitting', 'Elevator', 'Opening door',
-             'Standing', 'Climbing upstairs', 'Running']
+import pickle
+def store(files, names):
+    for i in range(len(files)):
+        pickle_out = open('data/' + names[i], "wb")
+        pickle.dump(files[i], pickle_out)
+        pickle_out.close()
+def load(names):
+    result = []
+    for i in names:
+        pickle_in = open(i, 'rb')
+        result.append(pickle.load(pickle_in))
+    return result
 columns = ['Acc_X', 'Acc_Y', 'Acc_Z', 'Gyr_X', 'Gyr_Y', 'Gyr_Z', 'Label']
+hz = 36
+all_activities = load(['data/all_activities'])[0]
+
 import pandas as pd
-import numpy as np
-def get_raw_data(activity):
-    return pd.read_csv("./categorized_data/" + activity + ".csv")
-import random
+def get_raw_data(user, activity):
+    return pd.read_csv('./categorized_data/user' + str(user) + '_' + activity + '.csv')
+
 from tqdm import tqdm
-def totoal_a(accs):
-    import numpy as np
-#     for i in range(len(accs)):
-#         accs[i] = (accs[i]  * 3.0 / 63.0 - 1.5) * 9.8
-    return np.sqrt(np.sum(map(lambda x: np.square(x), accs)))
     
 def create_segs(data, duration):
     data = data.iloc[:, :3] # get x, y, z acceleration
-    result = []
-    for index, row in data.iterrows():
-        result.append(totoal_a(list(row)[:3]))
+    result = data.values.tolist()
     segs = []
     length = len(result)
-    for i in tqdm(range(0, length, 32 * duration)):
-        if i + duration * 32 <= length:
-            segs.append(result[i:i + duration * 32])
+    for i in tqdm(range(0, length, hz * duration)):
+        if i + duration * hz <= length:
+            segs.append(result[i:i + duration * hz])
     return segs
 
-import relaxed_dtw_v1
 import numpy as np
+from dtw_lib import _dtw_lib
+from scipy.spatial.distance import euclidean
 
-def distance(seg1, seg2):
-    result = 0.0;
-    dist = lambda x,y : np.abs(x - y)
-    distance, matrix = relaxed_dtw_v1.relaxed_dtw(seg1, seg2, distance=dist, r=16)
+def distance(seg1, seg2, relax):
+    distance, path, D = _dtw_lib.fastdtw(seg1, seg2, relax=relax, dist=euclidean)
     return distance
         
-def find_medoid_seg(segs):
+def find_medoid_seg(segs, user, activity, duration):
     length = len(segs)
     result = [0 for i in range(length)]
-    table = [[-1 for i in range(length)] for i in range(length)]
+    table = [[-1 for i in range(length)] for i in range(length)] # initialize the table to all -1
     for i in tqdm(range(length)):
         for j in range(length):
-            if i == j: continue
-            elif table[i][j] != -1:
+            if i == j: 
+                table[i][j] = 0
+                continue
+            elif table[j][i] != -1:  # using memoization
+                table[i][j] = table[j][i]
                 result[i] += table[i][j]
             else:
-                table[i][j] = distance(segs[i], segs[j])
-                result[i] = table[i][j]
+                table[i][j] = distance(segs[i], segs[j], 1)
+                result[i] += table[i][j]
+    store([table], ['user' + str(user) + '_' + activity + '_matrix_' + str(duration)])
     min_medoid = min(result)
     for i in range(len(result)):
         if min_medoid == result[i]:
-            return segs[i], min_medoid
+            return segs[i], min_medoid / len(segs)
 
-all = []
-for i in random.sample(list(range(len(activities))), 4):
-	segs = create_segs(get_raw_data(activities[i]), 5)
-	all.extend(random.sample(segs, int(len(segs) / 4)))
-table = [[-1 for i in range(len(all))] for j in range(len(all))]
-for i in range(len(all)):
-	for j in range(len(all)):
-		if i == j: table[i][j] = 0
-		elif i > j:
-			table[i][j] = table[j][i]
-		else:
-			table[i][j] = distance(all[i], all[j])
+def calculate_medoids(user, activities, duration):
+    import random
+    all_segments = []
+    medoids = []
+    represents = []
+    user_str = 'user' + str(user) + '_'
+    for i in range(len(activities)):
+        segs = create_segs(get_raw_data(user, activities[i]), duration)
+        all_segments.append(segs)
+        seg, medoid = find_medoid_seg(segs, user, activities[i], duration)
+        represents.append(seg)
+        medoids.append(medoid)
+        name = [user_str + activities[i] + "_segments_" + str(duration)]
+        store([segs], name)
+    names = [user_str + "all_segments_" + str(duration), user_str + "medoids_" + str(duration), user_str + "represents_" + str(duration)]
+    store([all_segments, medoids, represents], names)
+    return all_segments, medoids, represents
 
-import networkx as nx
-import numpy as np
-import string
-import pickle
-pickle_out = open("table.pickle","wb")
-pickle.dump(table, pickle_out)
-pickle_out.close()
+user = 2
 
-
-dt = [('len', float)]
-A = np.array(table) * 20
-A = A.view(dt)
-
-G = nx.from_numpy_matrix(A)
-G = nx.relabel_nodes(G, dict(zip(range(len(G.nodes())),string.ascii_uppercase)))    
-
-G = nx.drawing.nx_agraph.to_agraph(G)
-
-# G.node_attr.update(color="red", style="filled")
-# G.edge_attr.update(color="blue", width="2.0")
-
-G.draw('./out.png', format='png', prog='neato')
+calculate_medoids(user, all_activities[user][1:], 5)

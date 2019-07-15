@@ -37,6 +37,13 @@ def store(files, names):
       pickle_out = open('data/' + names[i], "wb")
       pickle.dump(files[i], pickle_out)
       pickle_out.close()
+        
+def load(names):
+    result = []
+    for i in names:
+        pickle_in = open(i, 'rb')
+        result.append(pickle.load(pickle_in))
+    return result
 
 def calculate_matrix(segs, distance):
    length = len(segs)
@@ -53,8 +60,8 @@ def calculate_matrix(segs, distance):
    return table
 
 from sklearn.cluster import AgglomerativeClustering
-def get_hieratical_cluster(matrix, num_cluster):
-   cluster = AgglomerativeClustering(n_clusters=num_cluster, affinity='precomputed', linkage='complete')  
+def get_hieratical_cluster(matrix, num_cluster, linkage='complete'):
+   cluster = AgglomerativeClustering(n_clusters=num_cluster, affinity='precomputed', linkage=linkage)  
    return cluster.fit_predict(matrix)
 
 def convert_label_to_clusters(l):
@@ -82,7 +89,6 @@ def get_medoid(cluster, matrix, segs):
          dis[i] += matrix[cluster[i]][j]
    index = np.argmax(dis)
    return segs[index], dis[index] / len(cluster)
-
 
 def get_medoids(matrix, segs, num, label):
    """get the medoids with distance matrix, and num of medoids

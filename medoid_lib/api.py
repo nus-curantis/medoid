@@ -59,6 +59,51 @@ def calculate_matrix(segs, distance):
             table[i][j] = distance(segs[i], segs[j])
    return table
 
+def plot_matrix(matrix, title, tick_labels=None, tag=False, name="", save=False):
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+    import matplotlib.image as mpimg
+
+    fig, ax = plt.subplots()
+    im = ax.imshow(matrix)
+    # set the ticks
+    if tag:
+        ax.set_xticks(np.arange(len(tick_labels)))
+        ax.set_yticks(np.arange(len(tick_labels)))
+        # set entry with labels
+        ax.set_xticklabels(tick_labels)
+        ax.set_yticklabels(tick_labels)
+    title = "distance distribution for %s " % title 
+    ax.set_title(title)
+    fig.tight_layout()
+    # scale the range of the bar to be 0 - 60
+    quadmesh = ax.pcolormesh(matrix)
+    quadmesh.set_clim(0,60)
+    fig.colorbar(quadmesh)
+    if save: plt.savefig(name)
+    plt.show()
+
+from scipy.cluster.hierarchy import dendrogram, linkage  
+from scipy.spatial.distance import pdist
+from matplotlib import pyplot as plt
+def hieratical_plot(matrix, segs, link, title, name="", save=False):
+    f = lambda x, y: matrix[x[1]][y[1]]
+    X = list(map(lambda x: [0, x], range(len(segs))))
+    Y = pdist(X, f)
+    linked = linkage(Y, link, metric = '')
+
+    labelList = range(0, len(segs))
+
+    plt.figure(figsize=(10, 7))  
+    dendrogram(linked,  
+                orientation='top',
+                labels=labelList,
+                distance_sort='descending',
+                show_leaf_counts=True)
+    plt.title(title + "======" + link)
+    if save: plt.savefig(name)
+    plt.show()  
+    
 from sklearn.cluster import AgglomerativeClustering
 def get_hieratical_cluster(matrix, num_cluster, linkage='complete'):
    cluster = AgglomerativeClustering(n_clusters=num_cluster, affinity='precomputed', linkage=linkage)  

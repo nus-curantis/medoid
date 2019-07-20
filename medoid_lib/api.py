@@ -1,27 +1,27 @@
 # data type is DataFrame, with a cloumn called label
-def categorize_data(data, label_col='Label', limit=36 * 5, path='./categorized_data/', store='true'):
-   labels = set(data[label_col].values)
-   new_labels = []
-   categorized_data = []
-   for label in labels:
-      tmp = data.loc[data[label_col] == label]
-      if tmp.shape[0] < limit:
-         print('the data with label:' + label + ' does not have enough data, dropped')
-         continue
-      new_labels.append(str(label))
-      categorized_data.append((tmp.drop(['Label'], axis=1), label))
-      if store:
-         tmp.to_csv(path + str(label) + '.csv', index=False)
-   return new_labels, categorized_data
+def categorize_data(data, label_col='Label', limit=36 * 5, path='./categorized_data/', store=True):
+    labels = set(data[label_col].values)
+    new_labels = []
+    categorized_data = []
+    for label in labels:
+        tmp = data.loc[data[label_col] == label]
+        if tmp.shape[0] < limit:
+            print('the data with label:' + str(label) + ' does not have enough data, dropped')
+            continue
+        new_labels.append(str(label))
+        categorized_data.append((tmp.drop(['Label'], axis=1), label))
+        if store:
+            tmp.to_csv(path + str(label) + '.csv', index=False)
+    return new_labels, categorized_data
 
 def create_segs(data, duration):
-   result = data.values.tolist()
-   segs = []
-   length = len(result)
-   for i in range(0, length, duration):
-      if i + duration <= length:
-         segs.append(result[i:i + duration])
-   return segs
+    result = data.values.tolist()
+    segs = []
+    length = len(result)
+    for i in range(0, length, duration):
+        if i + duration <= length:
+            segs.append(result[i:i + duration])
+    return segs
 
 import numpy as np
 # from dtw_lib import _dtw_lib
@@ -33,10 +33,10 @@ import numpy as np
 
 import pickle
 def store(files, names):
-   for i in range(len(files)):
-      pickle_out = open('data/' + names[i], "wb")
-      pickle.dump(files[i], pickle_out)
-      pickle_out.close()
+    for i in range(len(files)):
+        pickle_out = open('data/' + names[i], "wb")
+        pickle.dump(files[i], pickle_out)
+        pickle_out.close()
         
 def load(names):
     result = []
@@ -46,18 +46,31 @@ def load(names):
     return result
 
 def calculate_matrix(segs, distance):
-   length = len(segs)
-   table = [[-1 for i in range(length)] for i in range(length)] # initialize the table to all -1
-   for i in range(length):
-      for j in range(length):
-         if i == j: 
-            table[i][j] = 0
-            continue
-         elif table[j][i] != -1:  # using memoization
-            table[i][j] = table[j][i]
-         else:
-            table[i][j] = distance(segs[i], segs[j])
-   return table
+    length = len(segs)
+    table = [[-1 for i in range(length)] for i in range(length)] # initialize the table to all -1
+    for i in range(length):
+        for j in range(length):
+            if i == j: 
+                table[i][j] = 0
+                continue
+            elif table[j][i] != -1:  # using memoization
+                table[i][j] = table[j][i]
+            else:
+                table[i][j] = distance(segs[i], segs[j])
+    return table
+
+# the input data is a dataframe contains all raw data with label
+def prepare_matrix(data, distance, label_col='Label', duration=180, limit=180, store_path='./data',
+                          store_categorized=False, store_segs=True):
+        new_labels, categorized_data = categorize_data(data, label_col=label_col, limit=limit, path=store_path, store=store_categorized)
+        from tqdm import tqdm
+        for i in tqdm(range(len(new_labels))):
+            labeled_data, label = categorized_data[i]
+            segs = create_segs(labeled_data, duration)
+            if store_segs:
+                store([segs], [str(label) + '_segs_' + str(duration)])
+            matrix = calculate_matrix(segs, distance)
+            store([matrix], [str(label) + '_matrix_' + str(duration)])
 
 def plot_matrix(matrix, title, tick_labels=None, tag=False, name="", save=False):
     import matplotlib as mpl
@@ -105,20 +118,73 @@ def hieratical_plot(matrix, segs, link, title, name="", save=False):
     plt.show()  
     
 from sklearn.cluster import AgglomerativeClustering
+
 def get_hieratical_cluster(matrix, num_cluster, linkage='complete'):
-   cluster = AgglomerativeClustering(n_clusters=num_cluster, affinity='precomputed', linkage=linkage)  
-   return cluster.fit_predict(matrix)
+    cluster = AgglomerativeClustering(n_clusters=num_cluster, affinity='precomputed', linkage=linkage)  
+    return cluster.fit_predict(matrix)
 
 def convert_label_to_clusters(l):
-   clusters = [[] for i in range(max(l) + 1)]
-   for indx, value in enumerate(l):
-      clusters[value].append(indx)
-   return clusters
+    clusters = [[] for i in range(max(l) + 1)]
+    for indx, value in enumerate(l):
+        clusters[value].append(indx)
+    return clusters
+
+# code for get num of cluster
+def get_pairwise(cluster, matrix):
+    length = len(cluster)
+    sum = 0
+    count = 0
+    for i in range(length):
+        for j in range(i, length):
+            sum += matrix[i][j]
+            count += 1
+    return sum / length #this only divide the number of the segs in the cluster
+
+def get_pairwise_medoids(medoids, f):
+    length = len(medoids)
+    sum = 0
+    count = 0
+    for i in range(0, length):
+        for j in range(i, length):
+            sum += f(medoids[i], medoids[j])
+            count += 1
+    return sum
+
+def get_loss_for_num(segs, matrix, k, f, mode='average'):
+    represents = get_represents_with_num(matrix, segs, k, 0)
+    medoids = list(map(lambda r: r[0], represents))
+    clusters = convert_label_to_clusters(get_hieratical_cluster(matrix, k, mode))
+    numerator= 0
+    for c in clusters:
+        numerator += get_pairwise(c, matrix)
+    denominator = get_pairwise_medoids(medoids, f)
+    return numerator / k
+
+def point_to_line_dist(start, end, point):
+    import math
+    a = 1.0 * (start[1] - end[1]) / (start[0] - end[0])
+    c = end[1] - a * end[0]
+    return abs(a * point[0] - point[1] + c) / math.sqrt(a **2 + 1)
+
+def get_elbow(points):
+    start = points[0]
+    end = points[-1]
+    dist = list(map(lambda p: point_to_line_dist(start, end, p), points))
+    return np.argmax(dist) + 1
+
+def get_cluster_num(matrix, segs, f, mode='average'):
+    max_num = 10 if len(matrix) > 10 else len(matrix)
+    x = list(range(1, max_num))
+    y = []
+    for i in x:
+        y.append(get_loss_for_num(segs, matrix, i, f, mode))
+    points = list(map(lambda i: (i, y[i - 1]), x))
+    return get_elbow(points)
 
 def get_medoid(cluster, matrix, segs):
-   """get the medoids from one cluster
+    """get the medoids from one cluster
 
-   calculate medoids with cluster(index) distance matrix, and the segments
+    calculate medoids with cluster(index) distance matrix, and the segments
 
     Args:
       cluster: the index of the segs in the cluster
@@ -128,15 +194,15 @@ def get_medoid(cluster, matrix, segs):
       the tuples which contains the (medoids, D) where D is the average
       distance from medoid to other segs in the cluster. 
     """
-   dis = [0 for _ in range(len(cluster))]
-   for i in range(len(cluster)):
-      for j in cluster:
-         dis[i] += matrix[cluster[i]][j]
-   index = np.argmax(dis)
-   return segs[index], dis[index] / len(cluster)
+    dis = [0 for _ in range(len(cluster))]
+    for i in range(len(cluster)):
+        for j in cluster:
+            dis[i] += matrix[cluster[i]][j]
+    index = np.argmax(dis)
+    return segs[cluster[index]], dis[index] / len(cluster)
 
-def get_medoids(matrix, segs, num, label):
-   """get the medoids with distance matrix, and num of medoids
+def get_represents(matrix, segs, label, f, mode):
+    """get the medoids with distance matrix, and num of medoids
 
     Args:
       matrix: the distance matrix base on fast_relax dtw, of the same label.
@@ -146,14 +212,32 @@ def get_medoids(matrix, segs, num, label):
       the list of tuples which contains the (medoids, D) where D is the average
       distance from medoid to other segs in the cluster. 
     """
-   clusters = convert_label_to_clusters(get_hieratical_cluster(matrix, num))
-   medoids = []
-   for c in clusters:
-      medoids.append(get_medoid(c, matrix, segs) + (label,))
-   return medoids
+    num = get_cluster_num(matrix, segs, f, mode)
+    clusters = convert_label_to_clusters(get_hieratical_cluster(matrix, num))
+    medoids = []
+    for c in clusters:
+        medoids.append(get_medoid(c, matrix, segs) + (label,))
+    return medoids
+
+def get_represents_with_num(matrix, segs, num, label):
+    clusters = convert_label_to_clusters(get_hieratical_cluster(matrix, num))
+    medoids = []
+    for c in clusters:
+        medoids.append(get_medoid(c, matrix, segs) + (label,))
+    return medoids
+
+# the matrices, segs, nums, labels should be matched in order
+def get_multi_represents(matrices, all_segs, labels, f, mode='average'):
+    represents = []
+    for i in range(len(matrices)):
+        matrix = matrices[i]
+        segs = all_segs[i]
+        label = labels[i]
+        represents.extend(get_represents(matrix, segs, label, f, mode))
+    return represents
 
 def classify(represents, seg, distance, top=1):
-   """classify the unknown seg base on the medoids
+    """classify the unknown seg base on the medoids
 
     each activity get multiple medoids, which are seg, and classify the new seg base on the 
     distance from the seg and the medoids
@@ -168,14 +252,14 @@ def classify(represents, seg, distance, top=1):
     Returns:
         A list which contains the predication of the unknown seg.
     """
-   dis_f = lambda rep: distance(rep[0], seg) / rep[1]
-   result = sorted(represents, key=dis_f)
-   result = list(map(lambda rep: rep[-1], result))
-   return result[:top]
+    dis_f = lambda rep: distance(rep[0], seg) / rep[1]
+    result = sorted(represents, key=dis_f)
+    result = list(map(lambda rep: rep[-1], result))
+    return result[:top]
 
-def evaluate(test_segs, test_label, represents, distance, top):
-   predict = list(map(lambda seg: classify(represents, seg, distance, top), test_segs))
-   result = []
-   for i in range(len(predict)):
-      result.append(test_label[i] in predict[i])
-   return np.mean(result)
+def evaluate(test_segs, test_label, represents, distance, top=1):
+    predict = list(map(lambda seg: classify(represents, seg, distance, top), test_segs))
+    result = []
+    for i in range(len(predict)):
+        result.append(test_label[i] in predict[i])
+    return np.mean(result)

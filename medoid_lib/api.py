@@ -181,6 +181,7 @@ def get_cluster_num(matrix, segs, f, mode='average'):
     points = list(map(lambda i: (i, y[i - 1]), x))
     return get_elbow(points)
 
+from tqdm import tqdm
 def get_medoid(cluster, matrix, segs):
     """get the medoids from one cluster
 
@@ -257,8 +258,31 @@ def classify(represents, seg, distance, top=1):
     result = list(map(lambda rep: rep[-1], result))
     return result[:top]
 
+def classify_encoding(represents, seg, distance, top=1):
+    result = classify(represents, seg, distance, top)
+    labels = [x[2] for x in represents]
+    encoding = []
+    for i in range(len(labels)):
+        tmp = labels[i]
+        if tmp in result:
+            result.remove(tmp)
+            encoding.append(1)
+        else:
+            encoding.append(0)
+    return [labels, encoding]
+
+def classify_encoding_multiple(represents, segs, distance, top=1):
+    encoding = []
+    labels = [x[2] for x in represents]
+    for seg in tqdm(segs):
+        result = classify_encoding(represents, segs[0], distance, top)
+        encoding.append(result[1])
+    return [labels] + encoding
+
 def evaluate(test_segs, test_label, represents, distance, top=1):
-    predict = list(map(lambda seg: classify(represents, seg, distance, top), test_segs))
+    predict = []
+    for seg in tqdm(test_segs):
+        predict.append(classify(represents, seg, distance, top))
     result = []
     for i in range(len(predict)):
         result.append(test_label[i] in predict[i])

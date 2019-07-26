@@ -1,3 +1,4 @@
+import os
 # data type is DataFrame, with a cloumn called label
 def categorize_data(data, label_col='Label', limit=36 * 5, path='./categorized_data/', store=True):
     labels = set(data[label_col].values)
@@ -10,6 +11,9 @@ def categorize_data(data, label_col='Label', limit=36 * 5, path='./categorized_d
             continue
         new_labels.append(str(label))
         categorized_data.append((tmp.drop(['Label'], axis=1), label))
+        path = os.path.abspath(path) + '/'
+        if not os.path.exists(path):
+            os.makedirs(path)
         if store:
             tmp.to_csv(path + str(label) + '.csv', index=False)
     return new_labels, categorized_data
@@ -34,7 +38,7 @@ import numpy as np
 import pickle
 def store(files, names):
     for i in range(len(files)):
-        pickle_out = open('data/' + names[i], "wb")
+        pickle_out = open(names[i], "wb")
         pickle.dump(files[i], pickle_out)
         pickle_out.close()
         
@@ -61,16 +65,21 @@ def calculate_matrix(segs, distance):
 
 # the input data is a dataframe contains all raw data with label
 def prepare_matrix(data, distance, label_col='Label', duration=180, limit=180, store_path='./data',
-                          store_categorized=False, store_segs=True):
+                          store_categorized=False, store_segs=True， store_labels = True):
         new_labels, categorized_data = categorize_data(data, label_col=label_col, limit=limit, path=store_path, store=store_categorized)
         from tqdm import tqdm
+        store_path = os.path.abspath(store_path) + '/'
+        if not os.path.exists(store_path):
+            os.makedirs(store_path)
+        if store_labels:
+            store([new_labels], [store_path + 'all_labels'])
         for i in tqdm(range(len(new_labels))):
             labeled_data, label = categorized_data[i]
             segs = create_segs(labeled_data, duration)
             if store_segs:
-                store([segs], [str(label) + '_segs_' + str(duration)])
+                store([segs], [store_path + str(label) + '_segs_' + str(duration)])
             matrix = calculate_matrix(segs, distance)
-            store([matrix], [str(label) + '_matrix_' + str(duration)])
+            store([matrix], [store_path + str(label) + '_matrix_' + str(duration)])
 
 def plot_matrix(matrix, title, tick_labels=None, tag=False, name="", save=False):
     import matplotlib as mpl
@@ -230,11 +239,15 @@ def get_represents_with_num(matrix, segs, num, label):
 # the matrices, segs, nums, labels should be matched in order
 def get_multi_represents(matrices, all_segs, labels, f, mode='average'):
     represents = []
+    print(len(matrices),len(labels))
+    print(labels)
     for i in range(len(matrices)):
         matrix = matrices[i]
         segs = all_segs[i]
         label = labels[i]
+        print(label)
         represents.extend(get_represents(matrix, segs, label, f, mode))
+        print([x[2] for x in represents])
     return represents
 
 def classify(represents, seg, distance, top=1):

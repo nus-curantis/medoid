@@ -9,14 +9,14 @@ def categorize_data(data, label_col='Label', limit=36 * 5, path='./categorized_d
         if tmp.shape[0] < limit:
             print('the data with label:' + str(label) + ' does not have enough data, dropped')
             continue
-        new_labels.append(str(label))
+        new_labels.append(label)
         categorized_data.append((tmp.drop(['Label'], axis=1), label))
         path = os.path.abspath(path) + '/'
         if not os.path.exists(path):
             os.makedirs(path)
         if store:
             tmp.to_csv(path + str(label) + '.csv', index=False)
-    return new_labels, categorized_data
+    return sorted(new_labels, key=str), categorized_data
 
 def create_segs(data, duration):
     result = data.values.tolist()

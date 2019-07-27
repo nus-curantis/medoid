@@ -239,15 +239,11 @@ def get_represents_with_num(matrix, segs, num, label):
 # the matrices, segs, nums, labels should be matched in order
 def get_multi_represents(matrices, all_segs, labels, f, mode='average'):
     represents = []
-    print(len(matrices),len(labels))
-    print(labels)
     for i in range(len(matrices)):
         matrix = matrices[i]
         segs = all_segs[i]
         label = labels[i]
-        print(label)
         represents.extend(get_represents(matrix, segs, label, f, mode))
-        print([x[2] for x in represents])
     return represents
 
 def classify(represents, seg, distance, top=1):

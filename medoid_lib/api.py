@@ -65,7 +65,7 @@ def calculate_matrix(segs, distance):
 
 # the input data is a dataframe contains all raw data with label
 def prepare_matrix(data, distance, label_col='Label', duration=180, limit=180, store_path='./data',
-                          store_categorized=False, store_segs=True， store_labels = True):
+                          store_categorized=False, store_segs=True, store_labels = True):
         new_labels, categorized_data = categorize_data(data, label_col=label_col, limit=limit, path=store_path, store=store_categorized)
         from tqdm import tqdm
         store_path = os.path.abspath(store_path) + '/'
@@ -81,7 +81,7 @@ def prepare_matrix(data, distance, label_col='Label', duration=180, limit=180, s
             matrix = calculate_matrix(segs, distance)
             store([matrix], [store_path + str(label) + '_matrix_' + str(duration)])
 
-def plot_matrix(matrix, title, tick_labels=None, tag=False, name="", save=False):
+def plot_matrix(matrix, title, tick_labels=None, tag=False, name="", save=False, mark=[], mark2=[]):
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import matplotlib.image as mpimg
@@ -98,10 +98,12 @@ def plot_matrix(matrix, title, tick_labels=None, tag=False, name="", save=False)
     title = "distance distribution for %s " % title 
     ax.set_title(title)
     fig.tight_layout()
-    # scale the range of the bar to be 0 - 60
+    # scale the range of the bar to be 0 - 100
     quadmesh = ax.pcolormesh(matrix)
-    quadmesh.set_clim(0,60)
+    quadmesh.set_clim(0,100)
     fig.colorbar(quadmesh)
+    plt.scatter(mark, mark,marker='p',color='r')
+    plt.scatter(mark2, mark2,marker='p',color='b')
     if save: plt.savefig(name)
     plt.show()
 
@@ -191,7 +193,7 @@ def get_cluster_num(matrix, segs, f, mode='average'):
     return get_elbow(points)
 
 from tqdm import tqdm
-def get_medoid(cluster, matrix, segs):
+def get_medoid(cluster, matrix, segs, debug=False):
     """get the medoids from one cluster
 
     calculate medoids with cluster(index) distance matrix, and the segments
@@ -208,10 +210,12 @@ def get_medoid(cluster, matrix, segs):
     for i in range(len(cluster)):
         for j in cluster:
             dis[i] += matrix[cluster[i]][j]
-    index = np.argmax(dis)
+    index = np.argmin(dis)
+    if debug:
+        print(cluster[index])
     return segs[cluster[index]], dis[index] / len(cluster)
 
-def get_represents(matrix, segs, label, f, mode):
+def get_represents(matrix, segs, label, f, mode, debug=False):
     """get the medoids with distance matrix, and num of medoids
 
     Args:
@@ -225,8 +229,11 @@ def get_represents(matrix, segs, label, f, mode):
     num = get_cluster_num(matrix, segs, f, mode)
     clusters = convert_label_to_clusters(get_hieratical_cluster(matrix, num))
     medoids = []
+    if debug:
+        print(label)
+        print(clusters)
     for c in clusters:
-        medoids.append(get_medoid(c, matrix, segs) + (label,))
+        medoids.append(get_medoid(c, matrix, segs, debug) + (label,))
     return medoids
 
 def get_represents_with_num(matrix, segs, num, label):
@@ -237,16 +244,16 @@ def get_represents_with_num(matrix, segs, num, label):
     return medoids
 
 # the matrices, segs, nums, labels should be matched in order
-def get_multi_represents(matrices, all_segs, labels, f, mode='average'):
+def get_multi_represents(matrices, all_segs, labels, f, mode='average', debug=False):
     represents = []
     for i in range(len(matrices)):
         matrix = matrices[i]
         segs = all_segs[i]
         label = labels[i]
-        represents.extend(get_represents(matrix, segs, label, f, mode))
+        represents.extend(get_represents(matrix, segs, label, f, mode, debug))
     return represents
 
-def classify(represents, seg, distance, top=1):
+def classify(represents, seg, distance, top=1, debug=False):
     """classify the unknown seg base on the medoids
 
     each activity get multiple medoids, which are seg, and classify the new seg base on the 
@@ -264,6 +271,9 @@ def classify(represents, seg, distance, top=1):
     """
     dis_f = lambda rep: distance(rep[0], seg) / rep[1]
     result = sorted(represents, key=dis_f)
+    if debug: 
+        for i in map(lambda rep: list(rep)[1:] + [dis_f(rep), distance(rep[0], seg)], result):
+            print(i)
     result = list(map(lambda rep: rep[-1], result))
     return result[:top]
 
@@ -288,10 +298,14 @@ def classify_encoding_multiple(represents, segs, distance, top=1):
         encoding.append(result[1])
     return [labels] + encoding
 
-def evaluate(test_segs, test_label, represents, distance, top=1):
+def evaluate(test_segs, test_label, represents, distance, top=1, debug=False):
     predict = []
-    for seg in tqdm(test_segs):
-        predict.append(classify(represents, seg, distance, top))
+    i = 0
+    for seg in test_segs:
+        classification = classify(represents, seg, distance, top, debug)
+        if debug: print(test_label[i] in classification)
+        predict.append(classification)
+        i += 1
     result = []
     for i in range(len(predict)):
         result.append(test_label[i] in predict[i])
